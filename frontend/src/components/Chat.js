@@ -22,13 +22,13 @@ function Chat() {
   };
 
   useEffect(() => {
-    socket.current = io('http://localhost:5000', {
+    socket.current = io('https://chat-application-backend-6art.onrender.com', {
       auth: { token: localStorage.getItem('token') }
     });
 
     const fetchMessages = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/messages/${room}`, {
+        const res = await axios.get(`https://chat-application-backend-6art.onrender.com/api/messages/${room}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         setMessages(res.data);
@@ -97,7 +97,7 @@ function Chat() {
   const deleteRoom = async () => {
     if (window.confirm(`Are you sure you want to delete the room "${room}"?`)) {
       try {
-        await axios.delete(`http://localhost:5000/api/rooms/${room}`, {
+        await axios.delete(`https://chat-application-backend-6art.onrender.com/api/rooms/${room}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
       } catch (err) {

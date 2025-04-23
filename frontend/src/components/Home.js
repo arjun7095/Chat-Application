@@ -14,7 +14,7 @@ function Home() {
   useEffect(() => {
     const fetchRooms = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/rooms/${userId}`, {
+        const res = await axios.get(`https://chat-application-backend-6art.onrender.com/api/rooms/${userId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
         });
         setRooms(res.data);
@@ -29,7 +29,7 @@ function Home() {
     e.preventDefault();
     try {
       await axios.post(
-        'http://localhost:5000/api/rooms',
+        'https://chat-application-backend-6art.onrender.com/api/rooms',
         { name: createRoomName,userId },
         { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
       );
@@ -51,7 +51,7 @@ function Home() {
   const handleDeleteRoom = async (roomName) => {
     if (window.confirm(`Are you sure you want to delete the room "${roomName}"?`)) {
       try {
-        const res=await axios.delete(`http://localhost:5000/api/rooms/${roomName}?userId=${userId}`, {
+        const res=await axios.delete(`https://chat-application-backend-6art.onrender.com/api/rooms/${roomName}?userId=${userId}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
           
         });
