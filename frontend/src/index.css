@@ -1,0 +1,155 @@
+/* Custom animations */
+@keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slideIn {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.05);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  
+  /* Apply animations to specific classes */
+  .fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  
+  .slide-in {
+    animation: slideIn 0.5s ease-out;
+  }
+  
+  .pulse {
+    animation: pulse 0.2s ease-in-out;
+  }
+  
+  /* Custom scrollbar */
+  .chat-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-thumb {
+    background: #3b82f6;
+    border-radius: 4px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-thumb:hover {
+    background: #2563eb;
+  }
+  .emoji-picker-react {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+    border-radius: 8px !important;
+    border: 1px solid #e5e7eb !important;
+  }
+  
+  /* Adjust emoji picker size for smaller screens */
+  @media (max-width: 640px) {
+    .emoji-picker-react {
+      width: 100% !important;
+      max-width: 300px !important;
+    }
+  }
+  @tailwind base;
+  @tailwind components;
+  @tailwind utilities;
+  
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  @keyframes slideIn {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.05);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  
+  .slide-in {
+    animation: slideIn 0.5s ease-out;
+  }
+  
+  .pulse {
+    animation: pulse 0.2s ease-in-out;
+  }
+  
+  .chat-scroll::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-thumb {
+    background: #3b82f6;
+    border-radius: 4px;
+  }
+  
+  .chat-scroll::-webkit-scrollbar-thumb:hover {
+    background: #2563eb;
+  }
+  
+  .emoji-picker-react {
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+    border-radius: 8px !important;
+    border: 1px solid #e5e7eb !important;
+  }
+  
+  @media (max-width: 640px) {
+    .emoji-picker-react {
+      width: 100% !important;
+      max-width: 300px !important;
+    }
+  }
