@@ -61,16 +61,15 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const token = jwt.sign({ userId: user._id, username }, process.env.JWT_SECRET, { expiresIn: '1h' });
-    res.json({ token, username ,userId:user._id});
+    res.json({ token, username, userId: user._id });
   } catch (err) {
     res.status(500).json({ error: 'Failed to login' });
   }
 });
 
-app.get('/api/rooms/:userId',  async (req, res) => {
+app.get('/api/rooms/:userId', async (req, res) => {
   try {
-    const {userId} =req.body;
-    const rooms = await Room.find({ creatorId:req.params.userId });
+    const rooms = await Room.find({ creatorId: req.params.userId });
     res.json(rooms);
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch rooms' });
@@ -79,8 +78,7 @@ app.get('/api/rooms/:userId',  async (req, res) => {
 
 app.post('/api/rooms', async (req, res) => {
   try {
-    const { name,userId } = req.body;
-    console.log(name)
+    const { name, userId } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Room name is required' });
     }
@@ -211,17 +209,21 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
-    if (socket.user && socket.room) {
-      io.to(socket.room).emit('message', {
-        username: 'System',
-        message: `${socket.user.username} has left the room`,
-        room: socket.room,
-        timestamp: new Date()
-      });
-    }
-    console.log(`Client disconnected: ${socket.id}`);
+  socket.on('callRequest', ({ room }) => {
+    console.log('callRequest event received for room:', room);
+    socket.to(room).emit('callRequest');
   });
+
+  socket.on('callAccepted', ({ room }) => {
+    console.log('callAccepted event received for room:', room);
+    socket.to(room).emit('callAccepted');
+  });
+
+  socket.on('callRejected', ({ room }) => {
+    console.log('callRejected event received for room:', room);
+    socket.to(room).emit('callRejected');
+  });
+
   socket.on('callUser', ({ signal, room }) => {
     console.log('callUser event received:', signal);
     socket.to(room).emit('callUser', { signal });
@@ -238,25 +240,15 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-  socket.on('callDeclined', ({ room }) => {
-    console.log('callDeclined event received');
-    socket.to(room).emit('callDeclined');
-  });
-  socket.on('callRequest', ({ room }) => {
-    console.log('callRequest event received for room:', room);
-    socket.to(room).emit('callRequest');
-  });
-
-  socket.on('callAccepted', ({ room }) => {
-    console.log('callAccepted event received for room:', room);
-    socket.to(room).emit('callAccepted');
-  });
-
-  socket.on('callRejected', ({ room }) => {
-    console.log('callRejected event received for room:', room);
-    socket.to(room).emit('callRejected');
+    if (socket.user && socket.room) {
+      io.to(socket.room).emit('message', {
+        username: 'System',
+        message: `${socket.user.username} has left the room`,
+        room: socket.room,
+        timestamp: new Date()
+      });
+    }
+    console.log(`Client disconnected: ${socket.id}`);
   });
 });
 
