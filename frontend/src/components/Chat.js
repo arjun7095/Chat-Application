@@ -27,6 +27,7 @@ function Chat() {
   const localVideoRef = useRef(null);
   const localStreamRef = useRef(null);
   const peerRefs = useRef({}); // Store peer instances by userId
+  const videoRefs = useRef({}); // Store video refs by userId
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -134,11 +135,13 @@ function Chat() {
       if (peerRefs.current[leftUserId]) {
         peerRefs.current[leftUserId].destroy();
         delete peerRefs.current[leftUserId];
+        delete videoRefs.current[leftUserId];
         setPeers((prev) => prev.filter((peer) => peer.userId !== leftUserId));
       }
       if (!peers.some((peer) => peer.connected)) {
         setCallStarted(false);
         setCallStatus('');
+        setOngoingCall(false);
       }
     });
 
@@ -203,7 +206,7 @@ function Chat() {
       setOngoingCall(true);
       // Update existing peers with the new stream
       Object.values(peerRefs.current).forEach((peer) => {
-        peer.addStream(stream);
+        stream.getTracks().forEach((track) => peer.addTrack(track, stream));
       });
     } catch (error) {
       console.error('Media access error:', error);
@@ -244,7 +247,13 @@ function Chat() {
       setPeers((prev) => {
         const existing = prev.find((p) => p.userId === toUserId);
         if (existing) {
+          if (videoRefs.current[toUserId]) {
+            videoRefs.current[toUserId].srcObject = stream;
+          }
           return prev.map((p) => (p.userId === toUserId ? { ...p, stream, connected: true } : p));
+        }
+        if (videoRefs.current[toUserId]) {
+          videoRefs.current[toUserId].srcObject = stream;
         }
         return [...prev, { userId: toUserId, stream, connected: true }];
       });
@@ -262,6 +271,7 @@ function Chat() {
     peer.on('close', () => {
       console.log('Peer connection closed with:', toUserId);
       delete peerRefs.current[toUserId];
+      delete videoRefs.current[toUserId];
       setPeers((prev) => prev.filter((p) => p.userId !== toUserId));
       if (!peers.some((p) => p.connected)) {
         setCallStarted(false);
@@ -301,6 +311,7 @@ function Chat() {
   const endCall = () => {
     Object.values(peerRefs.current).forEach((peer) => peer.destroy());
     peerRefs.current = {};
+    videoRefs.current = {};
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localVideoRef.current.srcObject = null;
     setPeers([]);
@@ -414,7 +425,12 @@ function Chat() {
                   <video
                     autoPlay
                     ref={(video) => {
-                      if (video && peer.stream) video.srcObject = peer.stream;
+                      if (video) {
+                        videoRefs.current[peer.userId] = video;
+                        if (peer.stream) {
+                          video.srcObject = peer.stream;
+                        }
+                      }
                     }}
                     className="w-full rounded-lg border border-gray-300"
                   />
