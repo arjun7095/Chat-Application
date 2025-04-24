@@ -13,9 +13,11 @@ function Chat() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [roomCreatorId, setRoomCreatorId] = useState('');
   const [callStarted, setCallStarted] = useState(false);
-  const [callStatus, setCallStatus] = useState(''); // Tracks call state: 'calling', 'rejected', etc.
+  const [callStatus, setCallStatus] = useState('');
   const [isMicOn, setIsMicOn] = useState(true);
   const [isCamOn, setIsCamOn] = useState(true);
+  const [peers, setPeers] = useState([]); // Track peers and their streams
+  const [ongoingCall, setOngoingCall] = useState(false); // Track if a call is ongoing
   const username = localStorage.getItem('username');
   const userId = localStorage.getItem('userId');
 
@@ -23,9 +25,8 @@ function Chat() {
   const messagesEndRef = useRef(null);
   const emojiPickerRef = useRef(null);
   const localVideoRef = useRef(null);
-  const remoteVideoRef = useRef(null);
-  const peerRef = useRef(null);
   const localStreamRef = useRef(null);
+  const peerRefs = useRef({}); // Store peer instances by userId
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -57,7 +58,7 @@ function Chat() {
     };
     fetchMessages();
 
-    socket.current.emit('joinRoom', { roomName: room });
+    socket.current.emit('joinRoom', { roomName: room, userId });
 
     socket.current.on('message', (newMessage) => {
       setMessages((prev) => [...prev, newMessage]);
@@ -77,78 +78,67 @@ function Chat() {
       navigate('/home');
     });
 
-    socket.current.on('callRequest', () => {
-      console.log('Received call request');
+    socket.current.on('callRequest', ({ from }) => {
+      console.log('Received call request from:', from);
       setCallStatus('incoming');
-      // Show accept/reject prompt
-      if (window.confirm('Incoming video call. Accept?')) {
-        socket.current.emit('callAccepted', { room });
-        startReceiverStream();
+      if (window.confirm(`Incoming video call from ${from}. Accept?`)) {
+        socket.current.emit('callAccepted', { room, to: from });
+        startStream();
       } else {
-        socket.current.emit('callRejected', { room });
+        socket.current.emit('callRejected', { room, to: from });
       }
     });
 
-    socket.current.on('callAccepted', () => {
-      console.log('Call accepted by receiver');
+    socket.current.on('callAccepted', ({ from }) => {
+      console.log('Call accepted by:', from);
       setCallStatus('accepted');
-      startCallerPeer();
+      createPeer(from, true);
     });
 
-    socket.current.on('callRejected', () => {
-      console.log('Call rejected by receiver');
-      setCallStatus('rejected');
-      alert('Call was rejected by the other user');
-      endCall();
+    socket.current.on('callRejected', ({ from }) => {
+      console.log('Call rejected by:', from);
+      alert(`Call was rejected by ${from}`);
+      if (!peers.some((peer) => peer.connected)) {
+        endCall();
+      }
     });
 
-    socket.current.on('callUser', ({ signal }) => {
-      console.log('Received callUser signal:', signal);
-      const peer = new Peer({
-        initiator: false,
-        stream: localStreamRef.current,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            // Add TURN server if available
-          ],
-        },
-      });
-
-      peer.on('signal', (data) => {
-        console.log('Emitting answerCall signal:', data);
-        socket.current.emit('answerCall', { signal: data, room });
-      });
-
-      peer.on('stream', (stream) => {
-        console.log('Received remote stream:', stream);
-        remoteVideoRef.current.srcObject = stream;
-      });
-
-      peer.on('connect', () => {
-        console.log('Peer connection established (callee)');
-      });
-
-      peer.on('error', (err) => {
-        console.error('Peer error (callee):', err);
-      });
-
-      peer.signal(signal);
-      peerRef.current = peer;
-      setCallStarted(true);
+    socket.current.on('callUser', ({ signal, from }) => {
+      console.log('Received callUser signal from:', from);
+      createPeer(from, false, signal);
     });
 
-    socket.current.on('callAnswered', ({ signal }) => {
-      console.log('Received callAnswered signal:', signal);
-      peerRef.current.signal(signal);
+    socket.current.on('callAnswered', ({ signal, from }) => {
+      console.log('Received callAnswered signal from:', from);
+      if (peerRefs.current[from]) {
+        peerRefs.current[from].signal(signal);
+      }
     });
 
-    socket.current.on('iceCandidate', ({ candidate }) => {
-      console.log('Received ICE candidate:', candidate);
-      if (peerRef.current) {
-        peerRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+    socket.current.on('iceCandidate', ({ candidate, from }) => {
+      console.log('Received ICE candidate from:', from);
+      if (peerRefs.current[from]) {
+        peerRefs.current[from].addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
           console.error('Error adding ICE candidate:', err);
         });
+      }
+    });
+
+    socket.current.on('ongoingCall', () => {
+      console.log('Received ongoingCall notification');
+      setOngoingCall(true);
+    });
+
+    socket.current.on('userLeft', ({ userId: leftUserId }) => {
+      console.log('User left:', leftUserId);
+      if (peerRefs.current[leftUserId]) {
+        peerRefs.current[leftUserId].destroy();
+        delete peerRefs.current[leftUserId];
+        setPeers((prev) => prev.filter((peer) => peer.userId !== leftUserId));
+      }
+      if (!peers.some((peer) => peer.connected)) {
+        setCallStarted(false);
+        setCallStatus('');
       }
     });
 
@@ -193,6 +183,7 @@ function Chat() {
       try {
         await axios.delete(`https://chat-application-backend-e7w8.onrender.com/api/rooms/${room}`, {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
+          params: { userId }
         });
       } catch (err) {
         alert(err.response?.data?.error || 'Failed to delete room');
@@ -200,25 +191,35 @@ function Chat() {
     }
   };
 
-  const startReceiverStream = async () => {
+  const startStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log('Receiver stream acquired:', stream);
+      console.log('Stream acquired:', stream);
       localStreamRef.current = stream;
       localVideoRef.current.srcObject = stream;
       setIsMicOn(true);
       setIsCamOn(true);
       setCallStarted(true);
+      setOngoingCall(true);
+      // Update existing peers with the new stream
+      Object.values(peerRefs.current).forEach((peer) => {
+        peer.addStream(stream);
+      });
     } catch (error) {
-      console.error('Receiver media access error:', error);
+      console.error('Media access error:', error);
       alert('Please allow camera and microphone access to join the call');
-      socket.current.emit('callRejected', { room });
+      socket.current.emit('callRejected', { room, to: Object.keys(peerRefs.current) });
     }
   };
 
-  const startCallerPeer = () => {
+  const createPeer = (toUserId, initiator, signal = null) => {
+    if (peerRefs.current[toUserId]) {
+      peerRefs.current[toUserId].destroy();
+      delete peerRefs.current[toUserId];
+    }
+
     const peer = new Peer({
-      initiator: true,
+      initiator,
       stream: localStreamRef.current,
       config: {
         iceServers: [
@@ -230,56 +231,83 @@ function Chat() {
 
     peer.on('signal', (data) => {
       if (data.candidate) {
-        console.log('Emitting ICE candidate:', data.candidate);
-        socket.current.emit('iceCandidate', { candidate: data.candidate, room });
+        console.log('Emitting ICE candidate to:', toUserId);
+        socket.current.emit('iceCandidate', { candidate: data.candidate, room, to: toUserId });
       } else {
-        console.log('Emitting callUser signal:', data);
-        socket.current.emit('callUser', { signal: data, room });
+        console.log('Emitting callUser signal to:', toUserId);
+        socket.current.emit('callUser', { signal: data, room, to: toUserId });
       }
     });
 
     peer.on('stream', (stream) => {
-      console.log('Received remote stream:', stream);
-      remoteVideoRef.current.srcObject = stream;
+      console.log('Received stream from:', toUserId);
+      setPeers((prev) => {
+        const existing = prev.find((p) => p.userId === toUserId);
+        if (existing) {
+          return prev.map((p) => (p.userId === toUserId ? { ...p, stream, connected: true } : p));
+        }
+        return [...prev, { userId: toUserId, stream, connected: true }];
+      });
     });
 
     peer.on('connect', () => {
-      console.log('Peer connection established (caller)');
+      console.log('Peer connection established with:', toUserId);
+      setPeers((prev) => prev.map((p) => (p.userId === toUserId ? { ...p, connected: true } : p)));
     });
 
     peer.on('error', (err) => {
-      console.error('Peer error (caller):', err);
+      console.error('Peer error with:', toUserId, err);
     });
 
-    peerRef.current = peer;
-    setCallStarted(true);
+    peer.on('close', () => {
+      console.log('Peer connection closed with:', toUserId);
+      delete peerRefs.current[toUserId];
+      setPeers((prev) => prev.filter((p) => p.userId !== toUserId));
+      if (!peers.some((p) => p.connected)) {
+        setCallStarted(false);
+        setCallStatus('');
+        setOngoingCall(false);
+      }
+    });
+
+    if (signal) {
+      peer.signal(signal);
+    }
+
+    peerRefs.current[toUserId] = peer;
   };
 
   const startCall = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      console.log('Caller stream acquired:', stream);
-      localStreamRef.current = stream;
-      localVideoRef.current.srcObject = stream;
-      setIsMicOn(true);
-      setIsCamOn(true);
+      await startStream();
       setCallStatus('calling');
-      socket.current.emit('callRequest', { room });
+      socket.current.emit('callRequest', { room, from: userId });
     } catch (error) {
-      console.error('Caller media access error:', error);
-      alert('Please allow camera and microphone access to start the call');
+      console.error('Start call error:', error);
+      alert('Failed to start call');
+    }
+  };
+
+  const joinCall = async () => {
+    try {
+      await startStream();
+      socket.current.emit('joinCall', { room, userId });
+    } catch (error) {
+      console.error('Join call error:', error);
+      alert('Failed to join call');
     }
   };
 
   const endCall = () => {
-    peerRef.current?.destroy();
+    Object.values(peerRefs.current).forEach((peer) => peer.destroy());
+    peerRefs.current = {};
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
     localVideoRef.current.srcObject = null;
-    remoteVideoRef.current.srcObject = null;
-    peerRef.current = null;
+    setPeers([]);
     localStreamRef.current = null;
     setCallStarted(false);
     setCallStatus('');
+    setOngoingCall(false);
     setIsMicOn(true);
     setIsCamOn(true);
   };
@@ -380,13 +408,36 @@ function Chat() {
                 </div>
               )}
             </div>
-            <video ref={remoteVideoRef} autoPlay className="w-full rounded-lg border border-gray-300" />
-            {!callStarted && callStatus !== 'calling' && callStatus !== 'incoming' && (
+            <div className="grid grid-cols-2 gap-2">
+              {peers.map((peer) => (
+                <div key={peer.userId} className="relative">
+                  <video
+                    autoPlay
+                    ref={(video) => {
+                      if (video && peer.stream) video.srcObject = peer.stream;
+                    }}
+                    className="w-full rounded-lg border border-gray-300"
+                  />
+                  <span className="absolute bottom-2 left-2 text-white bg-black bg-opacity-50 px-2 py-1 rounded">
+                    {peer.userId}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {!callStarted && callStatus !== 'calling' && callStatus !== 'incoming' && !ongoingCall && (
               <button
                 onClick={startCall}
                 className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 transition-all duration-300"
               >
                 Start Video Call
+              </button>
+            )}
+            {!callStarted && ongoingCall && (
+              <button
+                onClick={joinCall}
+                className="bg-yellow-600 text-white p-2 rounded-lg hover:bg-yellow-700 transition-all duration-300"
+              >
+                Join Call
               </button>
             )}
             {callStatus === 'calling' && (
