@@ -222,6 +222,24 @@ io.on('connection', (socket) => {
     }
     console.log(`Client disconnected: ${socket.id}`);
   });
+  socket.on('callUser', ({ signal, room }) => {
+    console.log('callUser event received:', signal);
+    socket.to(room).emit('callUser', { signal });
+  });
+
+  socket.on('answerCall', ({ signal, room }) => {
+    console.log('answerCall event received:', signal);
+    socket.to(room).emit('callAnswered', { signal });
+  });
+
+  socket.on('iceCandidate', ({ candidate, room }) => {
+    console.log('iceCandidate event received:', candidate);
+    socket.to(room).emit('iceCandidate', { candidate });
+  });
+
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
 });
 
 const PORT = process.env.PORT || 5000;
