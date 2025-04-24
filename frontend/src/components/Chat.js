@@ -33,6 +33,14 @@ function Chat() {
       auth: { token: localStorage.getItem('token') },
     });
 
+    socket.current.on('connect', () => {
+      console.log('Connected to Socket.IO server');
+    });
+
+    socket.current.on('connect_error', (err) => {
+      console.error('Socket.IO connection error:', err);
+    });
+
     const fetchMessages = async () => {
       try {
         const res = await axios.get(`https://chat-application-backend-e7w8.onrender.com/api/messages/${room}`, {
@@ -40,6 +48,7 @@ function Chat() {
         });
         setMessages(res.data);
       } catch (err) {
+        console.error('Failed to fetch messages:', err);
         navigate('/home');
       }
     };
@@ -66,18 +75,34 @@ function Chat() {
     });
 
     socket.current.on('callUser', ({ signal }) => {
+      console.log('Received callUser signal:', signal);
       const peer = new Peer({
         initiator: false,
-        trickle: false,
         stream: localStreamRef.current,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            // Add TURN server if available
+          ],
+        },
       });
 
       peer.on('signal', (data) => {
+        console.log('Emitting answerCall signal:', data);
         socket.current.emit('answerCall', { signal: data, room });
       });
 
       peer.on('stream', (stream) => {
+        console.log('Received remote stream:', stream);
         remoteVideoRef.current.srcObject = stream;
+      });
+
+      peer.on('connect', () => {
+        console.log('Peer connection established (callee)');
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error (callee):', err);
       });
 
       peer.signal(signal);
@@ -86,7 +111,18 @@ function Chat() {
     });
 
     socket.current.on('callAnswered', ({ signal }) => {
+      console.log('Received callAnswered signal:', signal);
       peerRef.current.signal(signal);
+    });
+
+    // Handle ICE candidates (requires backend support)
+    socket.current.on('iceCandidate', ({ candidate }) => {
+      console.log('Received ICE candidate:', candidate);
+      if (peerRef.current) {
+        peerRef.current.addIceCandidate(new RTCIceCandidate(candidate)).catch((err) => {
+          console.error('Error adding ICE candidate:', err);
+        });
+      }
     });
 
     return () => {
@@ -140,35 +176,59 @@ function Chat() {
   const startCall = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      console.log('Local stream acquired:', stream);
       localStreamRef.current = stream;
       localVideoRef.current.srcObject = stream;
 
       const peer = new Peer({
         initiator: true,
-        trickle: false,
         stream,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            // Add TURN server if available
+          ],
+        },
       });
 
       peer.on('signal', (data) => {
-        socket.current.emit('callUser', { signal: data, room });
+        if (data.candidate) {
+          console.log('Emitting ICE candidate:', data.candidate);
+          socket.current.emit('iceCandidate', { candidate: data.candidate, room });
+        } else {
+          console.log('Emitting callUser signal:', data);
+          socket.current.emit('callUser', { signal: data, room });
+        }
       });
 
       peer.on('stream', (stream) => {
+        console.log('Received remote stream:', stream);
         remoteVideoRef.current.srcObject = stream;
+      });
+
+      peer.on('connect', () => {
+        console.log('Peer connection established (caller)');
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error (caller):', err);
       });
 
       peerRef.current = peer;
       setCallStarted(true);
     } catch (error) {
-      alert('Unable to start video call');
-      console.error(error);
+      console.error('Media access error:', error);
+      alert('Please allow camera and microphone access to start the call');
     }
   };
 
   const endCall = () => {
     peerRef.current?.destroy();
-    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    localStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localVideoRef.current.srcObject = null;
+    remoteVideoRef.current.srcObject = null;
     peerRef.current = null;
+    localStreamRef.current = null;
     setCallStarted(false);
   };
 
