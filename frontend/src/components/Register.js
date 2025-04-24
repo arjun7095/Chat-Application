@@ -11,7 +11,7 @@ function Register() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('https://chat-application-backend-6art.onrender.com/api/register', { username, password });
+      const res = await axios.post('https://chat-application-backend-e7w8.onrender.com/api/register', { username, password });
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('username', res.data.username);
       navigate('/login');
