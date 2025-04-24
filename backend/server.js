@@ -244,6 +244,20 @@ io.on('connection', (socket) => {
     console.log('callDeclined event received');
     socket.to(room).emit('callDeclined');
   });
+  socket.on('callRequest', ({ room }) => {
+    console.log('callRequest event received for room:', room);
+    socket.to(room).emit('callRequest');
+  });
+
+  socket.on('callAccepted', ({ room }) => {
+    console.log('callAccepted event received for room:', room);
+    socket.to(room).emit('callAccepted');
+  });
+
+  socket.on('callRejected', ({ room }) => {
+    console.log('callRejected event received for room:', room);
+    socket.to(room).emit('callRejected');
+  });
 });
 
 const PORT = process.env.PORT || 5000;
