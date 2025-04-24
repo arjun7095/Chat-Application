@@ -13,6 +13,10 @@ function Chat() {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [roomCreatorId, setRoomCreatorId] = useState('');
   const [callStarted, setCallStarted] = useState(false);
+  const [incomingCall, setIncomingCall] = useState(false);
+  const [callerSignal, setCallerSignal] = useState(null);
+  const [isVideoOn, setIsVideoOn] = useState(true);
+  const [isAudioOn, setIsAudioOn] = useState(true);
   const username = localStorage.getItem('username');
   const userId = localStorage.getItem('userId');
 
@@ -76,46 +80,22 @@ function Chat() {
 
     socket.current.on('callUser', ({ signal }) => {
       console.log('Received callUser signal:', signal);
-      const peer = new Peer({
-        initiator: false,
-        stream: localStreamRef.current,
-        config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            // Add TURN server if available
-          ],
-        },
-      });
-
-      peer.on('signal', (data) => {
-        console.log('Emitting answerCall signal:', data);
-        socket.current.emit('answerCall', { signal: data, room });
-      });
-
-      peer.on('stream', (stream) => {
-        console.log('Received remote stream:', stream);
-        remoteVideoRef.current.srcObject = stream;
-      });
-
-      peer.on('connect', () => {
-        console.log('Peer connection established (callee)');
-      });
-
-      peer.on('error', (err) => {
-        console.error('Peer error (callee):', err);
-      });
-
-      peer.signal(signal);
-      peerRef.current = peer;
-      setCallStarted(true);
+      setIncomingCall(true);
+      setCallerSignal(signal);
     });
 
     socket.current.on('callAnswered', ({ signal }) => {
       console.log('Received callAnswered signal:', signal);
       peerRef.current.signal(signal);
+      setCallStarted(true);
     });
 
-    // Handle ICE candidates (requires backend support)
+    socket.current.on('callDeclined', () => {
+      console.log('Call declined by receiver');
+      alert('Call was declined by the receiver');
+      endCall();
+    });
+
     socket.current.on('iceCandidate', ({ candidate }) => {
       console.log('Received ICE candidate:', candidate);
       if (peerRef.current) {
@@ -215,11 +195,67 @@ function Chat() {
       });
 
       peerRef.current = peer;
-      setCallStarted(true);
     } catch (error) {
       console.error('Media access error:', error);
       alert('Please allow camera and microphone access to start the call');
     }
+  };
+
+  const acceptCall = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      console.log('Local stream acquired (receiver):', stream);
+      localStreamRef.current = stream;
+      localVideoRef.current.srcObject = stream;
+
+      const peer = new Peer({
+        initiator: false,
+        stream,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            // Add TURN server if available
+          ],
+        },
+      });
+
+      peer.on('signal', (data) => {
+        if (data.candidate) {
+          console.log('Emitting ICE candidate:', data.candidate);
+          socket.current.emit('iceCandidate', { candidate: data.candidate, room });
+        } else {
+          console.log('Emitting answerCall signal:', data);
+          socket.current.emit('answerCall', { signal: data, room });
+        }
+      });
+
+      peer.on('stream', (stream) => {
+        console.log('Received remote stream:', stream);
+        remoteVideoRef.current.srcObject = stream;
+      });
+
+      peer.on('connect', () => {
+        console.log('Peer connection established (callee)');
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error (callee):', err);
+      });
+
+      peer.signal(callerSignal);
+      peerRef.current = peer;
+      setCallStarted(true);
+      setIncomingCall(false);
+    } catch (error) {
+      console.error('Media access error:', error);
+      alert('Please allow camera and microphone access to accept the call');
+    }
+  };
+
+  const declineCall = () => {
+    socket.current.emit('callDeclined', { room });
+    setIncomingCall(false);
+    setCallerSignal(null);
   };
 
   const endCall = () => {
@@ -230,6 +266,26 @@ function Chat() {
     peerRef.current = null;
     localStreamRef.current = null;
     setCallStarted(false);
+    setIncomingCall(false);
+    setCallerSignal(null);
+    setIsVideoOn(true);
+    setIsAudioOn(true);
+  };
+
+  const toggleVideo = () => {
+    if (localStreamRef.current) {
+      const videoTrack = localStreamRef.current.getVideoTracks()[0];
+      videoTrack.enabled = !videoTrack.enabled;
+      setIsVideoOn(videoTrack.enabled);
+    }
+  };
+
+  const toggleAudio = () => {
+    if (localStreamRef.current) {
+      const audioTrack = localStreamRef.current.getAudioTracks()[0];
+      audioTrack.enabled = !audioTrack.enabled;
+      setIsAudioOn(audioTrack.enabled);
+    }
   };
 
   return (
@@ -283,16 +339,75 @@ function Chat() {
 
           {/* Video Section */}
           <div className="flex flex-col space-y-4">
-            <video ref={localVideoRef} autoPlay muted className="w-full rounded-lg border border-gray-300" />
+            <div className="relative">
+              <video ref={localVideoRef} autoPlay muted className="w-full rounded-lg border border-gray-300" />
+              <div className="absolute bottom-2 right-2 flex space-x-2">
+                <button
+                  onClick={toggleVideo}
+                  className={`p-2 rounded-full ${
+                    isVideoOn ? 'bg-gray-800 text-white' : 'bg-red-600 text-white'
+                  } hover:opacity-80 transition-all duration-300`}
+                  title={isVideoOn ? 'Turn off video' : 'Turn on video'}
+                >
+                  {isVideoOn ? (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M13 7l-8 8m0-8l8 8m6-7l-4.553 2.276A1 1 0 0021 8.618v6.764a1 1 0 01-1.447.894L15 14"
+                      />
+                    </svg>
+                  )}
+                </button>
+                <button
+                  onClick={toggleAudio}
+                  className={`p-2 rounded-full ${
+                    isAudioOn ? 'bg-gray-800 text-white' : 'bg-red-600 text-white'
+                  } hover:opacity-80 transition-all duration-300`}
+                  title={isAudioOn ? 'Turn off microphone' : 'Turn on microphone'}
+                >
+                  {isAudioOn ? (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                      />
+                    </svg>
+                  ) : (
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth="2"
+                        d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-8-8l8-8m-8 8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                      />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
             <video ref={remoteVideoRef} autoPlay className="w-full rounded-lg border border-gray-300" />
-            {!callStarted ? (
+            {!callStarted && !incomingCall && (
               <button
                 onClick={startCall}
                 className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 transition-all duration-300"
               >
                 Start Video Call
               </button>
-            ) : (
+            )}
+            {callStarted && (
               <button
                 onClick={endCall}
                 className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition-all duration-300"
@@ -336,6 +451,30 @@ function Chat() {
             Send
           </button>
         </form>
+
+        {/* Incoming Call Modal */}
+        {incomingCall && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white p-6 rounded-lg shadow-xl">
+              <h3 className="text-xl font-bold mb-4">Incoming Call</h3>
+              <p className="mb-4">You have an incoming video call. Would you like to accept?</p>
+              <div className="flex space-x-4">
+                <button
+                  onClick={acceptCall}
+                  className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700 transition-all duration-300"
+                >
+                  Accept
+                </button>
+                <button
+                  onClick={declineCall}
+                  className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700 transition-all duration-300"
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

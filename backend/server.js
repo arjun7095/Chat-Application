@@ -240,6 +240,10 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     console.log('User disconnected:', socket.id);
   });
+  socket.on('callDeclined', ({ room }) => {
+    console.log('callDeclined event received');
+    socket.to(room).emit('callDeclined');
+  });
 });
 
 const PORT = process.env.PORT || 5000;
