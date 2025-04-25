@@ -137,9 +137,6 @@ app.delete('/api/rooms/:room', async (req, res) => {
   }
 });
 
-// Track active call participants per room
-const activeCallParticipants = {};
-
 io.on('connection', (socket) => {
   console.log(`New client connected: ${socket.id}`);
 
@@ -181,7 +178,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('joinRoom', async ({ roomName, userId }) => {
+  socket.on('joinRoom', async ({ roomName }) => {
     try {
       const roomDoc = await Room.findOne({ name: roomName });
       if (!roomDoc) {
@@ -190,7 +187,6 @@ io.on('connection', (socket) => {
       }
       socket.join(roomName);
       socket.room = roomName;
-      socket.userId = userId;
       io.to(roomName).emit('message', {
         username: 'System',
         message: `${user.username} has joined the room`,
@@ -198,10 +194,6 @@ io.on('connection', (socket) => {
         timestamp: new Date()
       });
       io.to(roomName).emit('roomInfo', { room: roomName, creatorId: roomDoc.creatorId });
-      // Notify new user of ongoing call
-      if (activeCallParticipants[roomName]?.length > 0) {
-        socket.emit('ongoingCall');
-      }
     } catch (err) {
       socket.emit('error', { message: 'Failed to join room' });
     }
@@ -217,58 +209,34 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('callRequest', ({ room, from }) => {
-    console.log('callRequest event received for room:', room, 'from:', from);
-    if (!activeCallParticipants[room]) {
-      activeCallParticipants[room] = [];
-    }
-    if (!activeCallParticipants[room].includes(from)) {
-      activeCallParticipants[room].push(from);
-    }
-    socket.to(room).emit('callRequest', { from });
+  socket.on('callRequest', ({ room }) => {
+    console.log('callRequest event received for room:', room);
+    socket.to(room).emit('callRequest');
   });
 
-  socket.on('callAccepted', ({ room, to }) => {
-    console.log('callAccepted event received for room:', room, 'to:', to);
-    if (!activeCallParticipants[room]) {
-      activeCallParticipants[room] = [];
-    }
-    if (!activeCallParticipants[room].includes(socket.userId)) {
-      activeCallParticipants[room].push(socket.userId);
-    }
-    socket.to(room).emit('callAccepted', { from: socket.userId, to });
+  socket.on('callAccepted', ({ room }) => {
+    console.log('callAccepted event received for room:', room);
+    socket.to(room).emit('callAccepted');
   });
 
-  socket.on('callRejected', ({ room, to }) => {
-    console.log('callRejected event received for room:', room, 'to:', to);
-    socket.to(room).emit('callRejected', { from: socket.userId, to });
+  socket.on('callRejected', ({ room }) => {
+    console.log('callRejected event received for room:', room);
+    socket.to(room).emit('callRejected');
   });
 
-  socket.on('callUser', ({ signal, room, to }) => {
-    console.log('callUser event received from:', socket.userId, 'to:', to);
-    socket.to(room).emit('callUser', { signal, from: socket.userId, to });
+  socket.on('callUser', ({ signal, room }) => {
+    console.log('callUser event received:', signal);
+    socket.to(room).emit('callUser', { signal });
   });
 
-  socket.on('answerCall', ({ signal, room, to }) => {
-    console.log('answerCall event received from:', socket.userId, 'to:', to);
-    socket.to(room).emit('callAnswered', { signal, from: socket.userId, to });
+  socket.on('answerCall', ({ signal, room }) => {
+    console.log('answerCall event received:', signal);
+    socket.to(room).emit('callAnswered', { signal });
   });
 
-  socket.on('iceCandidate', ({ candidate, room, to }) => {
-    console.log('iceCandidate event received from:', socket.userId, 'to:', to);
-    socket.to(room).emit('iceCandidate', { candidate, from: socket.userId, to });
-  });
-
-  socket.on('joinCall', ({ room, userId }) => {
-    console.log('joinCall event received from:', userId);
-    if (!activeCallParticipants[room]) {
-      activeCallParticipants[room] = [];
-    }
-    if (!activeCallParticipants[room].includes(userId)) {
-      activeCallParticipants[room].push(userId);
-    }
-    // Notify existing call participants to create a peer for the new user
-    socket.to(room).emit('callRequest', { from: userId });
+  socket.on('iceCandidate', ({ candidate, room }) => {
+    console.log('iceCandidate event received:', candidate);
+    socket.to(room).emit('iceCandidate', { candidate });
   });
 
   socket.on('disconnect', () => {
@@ -279,15 +247,6 @@ io.on('connection', (socket) => {
         room: socket.room,
         timestamp: new Date()
       });
-      io.to(socket.room).emit('userLeft', { userId: socket.userId });
-      if (activeCallParticipants[socket.room]) {
-        activeCallParticipants[socket.room] = activeCallParticipants[socket.room].filter(
-          (id) => id !== socket.userId
-        );
-        if (activeCallParticipants[socket.room].length === 0) {
-          delete activeCallParticipants[socket.room];
-        }
-      }
     }
     console.log(`Client disconnected: ${socket.id}`);
   });
